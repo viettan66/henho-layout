@@ -86,6 +86,13 @@
     // State store
     const state = new Map(); // identity -> { role, pairToken, vTrack, aTrack, name }
 
+    function mergeEntry(id, patch) {
+      const prev = state.get(id) || {};
+      const next = { ...prev, ...patch };
+      state.set(id, next);
+      return next;
+    }
+
     // Helpers
     const parseMeta = (p) => {
       try { return p?.metadata ? JSON.parse(p.metadata) : {}; } catch { return {}; }
@@ -163,24 +170,19 @@
 
 function ingestParticipant(p) {
   const meta = parseMeta(p);
-  const base = {
-    role: (meta.role || '').toLowerCase(),
-    pairToken: (meta.pairToken || '').toString(),
+  const role = (meta.role || '').toLowerCase();
+  const pairToken = (meta.pairToken || '').toString();
+  const isFemaleRole = ["girl","female"].includes(role);
+  const isMaleRole = ["boy","male"].includes(role);
+
+  const entry = mergeEntry(p.identity, {
+    role,
+    pairToken,
     name: p.name || p.identity,
-    isFemale: ["girl","female"].includes((meta.role||'').toLowerCase()),
-    isMale: ["boy","male"].includes((meta.role||'').toLowerCase())
-  };
-  function mergeEntry(id, patch) {
-  const prev = state.get(id) || {};
-  const next = { ...prev, ...patch };
-  state.set(id, next);
-  return next;
-}
+    isFemale: isFemaleRole,
+    isMale: isMaleRole
+  });
 
-  // merge info (giữ nguyên track nếu có)
-  const entry = mergeEntry(p.identity, base);
-
-  // nếu đã có track publish sẵn thì thêm vào entry
   p.tracks?.forEach?.(pub => {
     const t = pub?.track;
     if (!t) return;
@@ -188,7 +190,6 @@ function ingestParticipant(p) {
     if (t.kind === 'audio') entry.aTrack = t;
   });
 
-  state.set(p.identity, entry);
   render();
 }
 
@@ -199,7 +200,12 @@ function ingestParticipant(p) {
     // Events
     room.on('participantConnected', ingestParticipant);
     room.on('participantDisconnected', (p)=>{ state.delete(p.identity); render(); });
-    room.on('participantMetadataChanged', (p)=>{ ingestParticipant(p); });
+    room.on('participantMetadataChanged', (...args)=>{
+      const participant = args[1] && typeof args[1] === 'object' ? args[1] : args[0];
+      if (participant && participant.identity) {
+        ingestParticipant(participant);
+      }
+    });
     room.on('trackSubscribed', (track, pub, p) => {
   const patch = {};
   if (track.kind === 'video') patch.vTrack = track;
