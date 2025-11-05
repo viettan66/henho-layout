@@ -64,33 +64,24 @@
 
   <script>
     async function initLiveKit() {
-      console.log('Checking window.LiveKitClient:', window.LiveKitClient);
-      console.log('Type of LiveKitClient:', typeof window.LiveKitClient);
-      
-      // Try to access connect function directly
-      let connect;
-      
-      if (window.LiveKitClient && typeof window.LiveKitClient === 'object') {
-        console.log('LiveKitClient object found, keys:', Object.keys(window.LiveKitClient));
-        connect = window.LiveKitClient.connect;
-      } else if (window.LiveKitClient && typeof window.LiveKitClient === 'function') {
-        // Sometimes the whole library is exposed as a function
-        connect = window.LiveKitClient;
-      }
-      
-      if (!connect) {
-        console.error('Could not find connect function');
+      const livekitNS = window.LivekitClient || window.LiveKitClient || window.LiveKit || window.livekit;
+      if (!livekitNS) {
+        console.error('LiveKit namespace not found');
         return;
       }
-      
-      console.log('Connect function found:', typeof connect);
+
+      const connectFn = typeof livekitNS.connect === 'function' ? livekitNS.connect.bind(livekitNS) : livekitNS;
+      if (typeof connectFn !== 'function') {
+        console.error('LiveKit connect function unavailable');
+        return;
+      }
 
     const qs = new URLSearchParams(window.location.search);
     const token = qs.get("token");
     const lkUrl = qs.get("url") || "wss://hen-ho-sf416dcq.livekit.cloud"; // override via ?url= if needed
     const focusPair = qs.get("pair") || ""; // optional pairToken to focus on
 
-    const room = await connect(lkUrl, token, { autoSubscribe: true });
+    const room = await connectFn(lkUrl, token, { autoSubscribe: true });
 
     // State store
     const state = new Map(); // identity -> { role, pairToken, vTrack, aTrack, name }
@@ -225,16 +216,7 @@ function ingestParticipant(p) {
     const script = document.createElement('script');
     script.src = 'https://unpkg.com/livekit-client@2.5.3/dist/livekit-client.umd.js';
     script.onload = function() {
-      // Wait a bit for global objects to be available
-      setTimeout(() => {
-        console.log('LiveKit loaded, checking available objects:', {
-          LiveKitClient: typeof window.LiveKitClient,
-          LiveKit: typeof window.LiveKit,
-          livekit: typeof window.livekit,
-          windowKeys: Object.keys(window).filter(k => k.toLowerCase().includes('live'))
-        });
-        initLiveKit();
-      }, 100);
+      setTimeout(initLiveKit, 100);
     };
     script.onerror = function() {
       console.error('Failed to load LiveKit script');
