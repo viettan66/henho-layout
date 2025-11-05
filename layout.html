@@ -62,66 +62,146 @@
   <div class="banbe2" id="banbe2"></div>
   <div class="banbe1" id="banbe1"></div>
 
-  <script type="module">
-    import { connect } from "https://cdn.livekit.io/js/livekit-client.min.js";
+  <script src="https://cdn.livekit.io/js/livekit-client.min.js" onload="initLiveKit()"></script>
+  <script>
+    async function initLiveKit() {
+      const { connect } = LiveKitClient;
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const roomName = urlParams.get("room");
-    const token = urlParams.get("token");
+    const qs = new URLSearchParams(window.location.search);
+    const token = qs.get("token");
+    const lkUrl = qs.get("url") || "wss://hen-ho-sf416dcq.livekit.cloud"; // override via ?url= if needed
+    const focusPair = qs.get("pair") || ""; // optional pairToken to focus on
 
-    const room = await connect("wss://hen-ho-sf416dcq.livekit.cloud", token);
+    const room = await connect(lkUrl, token, { autoSubscribe: true });
 
-    const layoutMap = {
-      "mc": "mc",
-      "nguoi1": "nguoi1",
-      "nguoi2": "nguoi2"
+    // State store
+    const state = new Map(); // identity -> { role, pairToken, vTrack, aTrack, name }
+
+    // Helpers
+    const parseMeta = (p) => {
+      try { return p?.metadata ? JSON.parse(p.metadata) : {}; } catch { return {}; }
     };
+    const roleOf = (p) => (parseMeta(p).role || "").toString().toLowerCase();
+    const pairOf = (p) => (parseMeta(p).pairToken || "").toString();
+    const genderOf = (p) => (parseMeta(p).gender || "").toString().toLowerCase();
+    const isFemale = (p) => ["girl","female"].includes(genderOf(p)) || ["girl","female"].includes(roleOf(p));
+    const isMale = (p) => ["boy","male"].includes(genderOf(p)) || ["boy","male"].includes(roleOf(p));
 
-    const banbe1List = ["banbe1-1", "banbe1-2", "banbe1-3", "banbe1-4", "banbe1-5"];
-    const banbe2List = ["banbe2-1", "banbe2-2", "banbe2-3", "banbe2-4", "banbe2-5"];
+    // Containers
+    const boxMc = document.getElementById('mc');
+    const boxN1 = document.getElementById('nguoi1');
+    const boxN2 = document.getElementById('nguoi2');
+    const boxB1 = document.getElementById('banbe1');
+    const boxB2 = document.getElementById('banbe2');
+    const audioHub = document.createElement('div'); audioHub.style.display='none'; document.body.appendChild(audioHub);
 
-    function renderParticipant(participant) {
-      participant.tracks.forEach(pub => {
-        if (pub.track && pub.track.kind === "video") {
-          const videoEl = pub.track.attach();
-          videoEl.autoplay = true;
-          videoEl.playsInline = true;
-          videoEl.muted = true;
-
-          const container = document.createElement("div");
-          container.className = "video-box friend-video";
-          container.appendChild(videoEl);
-
-          const label = document.createElement("div");
-          label.className = "name-label";
-          label.innerText = participant.identity;
-          container.appendChild(label);
-
-          // Xác định vị trí hiển thị
-          if (layoutMap[participant.identity]) {
-            const box = document.getElementById(layoutMap[participant.identity]);
-            box.appendChild(videoEl);
-            box.appendChild(label);
-          } else if (banbe1List.includes(participant.identity)) {
-            document.getElementById("banbe1").appendChild(container);
-          } else if (banbe2List.includes(participant.identity)) {
-            document.getElementById("banbe2").appendChild(container);
-          }
-        }
-      });
-
-      participant.on("trackSubscribed", (track, pub) => {
-        if (track.kind === "video") {
-          renderParticipant(participant);
-        }
-      });
+    function attachTrack(track) {
+      try {
+        const el = track.attach();
+        el.autoplay = true; el.playsInline = true;
+        // IMPORTANT: do not mute here; egress needs audio
+        const p = el.play?.(); if (p && p.catch) p.catch(()=>{});
+        return el;
+      } catch { return null; }
+    }
+    function clearNode(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+    function setTile(container, track, label) {
+      clearNode(container);
+      if (track) {
+        const vid = attachTrack(track);
+        if (vid) { vid.style.width='100%'; vid.style.height='100%'; vid.style.objectFit='cover'; container.appendChild(vid); }
+      }
+      if (label) {
+        const lb = document.createElement('div'); lb.className='name-label'; lb.innerText = label; container.appendChild(lb);
+      }
+    }
+    function upsertAudio(track, key) {
+      if (!track) return;
+      let a = document.getElementById(`aud-${key}`);
+      if (!a) { a = document.createElement('audio'); a.id = `aud-${key}`; a.autoplay=true; audioHub.appendChild(a); }
+      try { track.attach(a); const p=a.play?.(); if (p&&p.catch) p.catch(()=>{}); } catch {}
     }
 
-    room.participants.forEach(renderParticipant);
-    room.on("participantConnected", renderParticipant);
+    function pickLayout() {
+      const entries = Array.from(state.values()).filter(s => !!s.vTrack);
+      const mc = entries.find(s => s.role==='mc');
+      // focusPair from URL if provided, else take first female's pairToken, else empty
+      const pair = focusPair || (entries.find(s => s.role!=='mc' && s.isFemale)?.pairToken || '');
+      const isMatchPair = (s) => !pair || s.pairToken===pair;
+      const female = entries.find(s => s.isFemale && isMatchPair(s));
+      const male = entries.find(s => s.isMale && isMatchPair(s));
+      const friends = entries.filter(s => s!==mc && s!==female && s!==male);
+      return { mc, female, male, friends };
+    }
 
-    // Render localParticipant nếu là MC (hoặc host cần lên hình)
-    renderParticipant(room.localParticipant);
+    function render() {
+      const { mc, female, male, friends } = pickLayout();
+      setTile(boxMc, mc?.vTrack, mc?.name || 'MC');
+      setTile(boxN1, female?.vTrack, female?.name || 'Người 1');
+      setTile(boxN2, male?.vTrack, male?.name || 'Người 2');
+      clearNode(boxB1); clearNode(boxB2);
+      friends.forEach((f, idx) => {
+        const cont = document.createElement('div'); cont.className='video-box friend-video';
+        const vid = attachTrack(f.vTrack); if (vid) cont.appendChild(vid);
+        const lb = document.createElement('div'); lb.className='name-label'; lb.innerText=f.name||f.role||'Friend'; cont.appendChild(lb);
+        (idx % 2 === 0 ? boxB1 : boxB2).appendChild(cont);
+      });
+      // Mix audio: prefer MC + two main participants
+      upsertAudio(mc?.aTrack, 'mc');
+      upsertAudio(female?.aTrack, 'n1');
+      upsertAudio(male?.aTrack, 'n2');
+    }
+
+function ingestParticipant(p) {
+  const meta = parseMeta(p);
+  const base = {
+    role: (meta.role || '').toLowerCase(),
+    pairToken: (meta.pairToken || '').toString(),
+    name: p.name || p.identity,
+    isFemale: ["girl","female"].includes((meta.role||'').toLowerCase()),
+    isMale: ["boy","male"].includes((meta.role||'').toLowerCase())
+  };
+  function mergeEntry(id, patch) {
+  const prev = state.get(id) || {};
+  const next = { ...prev, ...patch };
+  state.set(id, next);
+  return next;
+}
+
+  // merge info (giữ nguyên track nếu có)
+  const entry = mergeEntry(p.identity, base);
+
+  // nếu đã có track publish sẵn thì thêm vào entry
+  p.tracks?.forEach?.(pub => {
+    const t = pub?.track;
+    if (!t) return;
+    if (t.kind === 'video') entry.vTrack = t;
+    if (t.kind === 'audio') entry.aTrack = t;
+  });
+
+  state.set(p.identity, entry);
+  render();
+}
+
+    // Seed
+    room.participants.forEach(ingestParticipant);
+    ingestParticipant(room.localParticipant);
+
+    // Events
+    room.on('participantConnected', ingestParticipant);
+    room.on('participantDisconnected', (p)=>{ state.delete(p.identity); render(); });
+    room.on('participantMetadataChanged', (p)=>{ ingestParticipant(p); });
+    room.on('trackSubscribed', (track, pub, p) => {
+  const patch = {};
+  if (track.kind === 'video') patch.vTrack = track;
+  if (track.kind === 'audio') patch.aTrack = track;
+  mergeEntry(p.identity, patch);
+  render();
+});
+    room.on('trackUnsubscribed', (track, pub, p) => {
+      const e = state.get(p.identity) || {}; if (track.kind==='video') e.vTrack = undefined; else if (track.kind==='audio') e.aTrack=undefined; state.set(p.identity, e); render();
+    });
+    }
   </script>
 </body>
 </html>
