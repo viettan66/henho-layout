@@ -65,11 +65,18 @@
   <script>
     async function initLiveKit() {
       // Try different global object names for LiveKit
-      const LiveKit = window.LiveKitClient || window.LiveKit || window.livekit;
+      const LiveKit = window.LiveKitClient || window.LiveKit || window.livekit || window.LK;
+      console.log('Attempting to initialize with LiveKit object:', LiveKit);
+      
       if (!LiveKit) {
-        console.error('LiveKit not loaded');
+        console.error('LiveKit not loaded - trying fallback');
+        // Fallback: try to access via different methods
+        const allGlobals = Object.keys(window).filter(k => k.toLowerCase().includes('live') || k.includes('LK'));
+        console.log('Available LiveKit-related globals:', allGlobals);
         return;
       }
+      
+      console.log('LiveKit object keys:', Object.keys(LiveKit));
       const { connect } = LiveKit;
 
     const qs = new URLSearchParams(window.location.search);
@@ -210,14 +217,18 @@ function ingestParticipant(p) {
 
     // Load LiveKit and initialize when ready
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/livekit-client@latest/dist/livekit-client.umd.js';
+    script.src = 'https://unpkg.com/livekit-client@2.5.3/dist/livekit-client.umd.js';
     script.onload = function() {
-      console.log('LiveKit loaded, available objects:', {
-        LiveKitClient: window.LiveKitClient,
-        LiveKit: window.LiveKit,
-        livekit: window.livekit
-      });
-      initLiveKit();
+      // Wait a bit for global objects to be available
+      setTimeout(() => {
+        console.log('LiveKit loaded, checking available objects:', {
+          LiveKitClient: typeof window.LiveKitClient,
+          LiveKit: typeof window.LiveKit,
+          livekit: typeof window.livekit,
+          windowKeys: Object.keys(window).filter(k => k.toLowerCase().includes('live'))
+        });
+        initLiveKit();
+      }, 100);
     };
     script.onerror = function() {
       console.error('Failed to load LiveKit script');
