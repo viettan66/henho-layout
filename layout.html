@@ -64,7 +64,13 @@
 
   <script>
     async function initLiveKit() {
-      const { connect } = LiveKitClient;
+      // Try different global object names for LiveKit
+      const LiveKit = window.LiveKitClient || window.LiveKit || window.livekit;
+      if (!LiveKit) {
+        console.error('LiveKit not loaded');
+        return;
+      }
+      const { connect } = LiveKit;
 
     const qs = new URLSearchParams(window.location.search);
     const token = qs.get("token");
@@ -204,9 +210,17 @@ function ingestParticipant(p) {
 
     // Load LiveKit and initialize when ready
     const script = document.createElement('script');
-    script.src = 'https://unpkg.com/livekit-client@latest/dist/livekit-client.umd.js';
+    script.src = 'https://cdn.jsdelivr.net/npm/livekit-client@latest/dist/livekit-client.umd.js';
     script.onload = function() {
+      console.log('LiveKit loaded, available objects:', {
+        LiveKitClient: window.LiveKitClient,
+        LiveKit: window.LiveKit,
+        livekit: window.livekit
+      });
       initLiveKit();
+    };
+    script.onerror = function() {
+      console.error('Failed to load LiveKit script');
     };
     document.head.appendChild(script);
   </script>
