@@ -70,16 +70,39 @@
         return;
       }
 
-      const candidateFns = [
-        livekitNS?.connect,
-        livekitNS?.default?.connect,
-        livekitNS?.default,
-        livekitNS?.LivekitClient?.connect,
-        livekitNS?.LivekitClient,
-        typeof livekitNS === 'function' ? livekitNS : undefined,
-      ].filter((fn) => typeof fn === 'function');
+      function resolveConnect(ns) {
+        const candidates = [
+          { fn: ns?.connect, ctx: ns },
+          { fn: ns?.default?.connect, ctx: ns?.default },
+          { fn: ns?.Room?.connect, ctx: ns?.Room },
+          { fn: ns?.default?.Room?.connect, ctx: ns?.default?.Room },
+          { fn: ns?.LivekitClient?.connect, ctx: ns?.LivekitClient },
+          { fn: ns?.default?.LivekitClient?.connect, ctx: ns?.default?.LivekitClient },
+          { fn: typeof ns === 'function' ? ns : undefined, ctx: ns },
+        ];
+        for (const candidate of candidates) {
+          if (typeof candidate.fn === 'function') {
+            return candidate.fn.bind(candidate.ctx);
+          }
+        }
+        if (typeof ns?.Room === 'function') {
+          return async (url, token, opts) => {
+            const room = new ns.Room();
+            await room.connect(url, token, opts);
+            return room;
+          };
+        }
+        if (typeof ns?.default?.Room === 'function') {
+          return async (url, token, opts) => {
+            const room = new ns.default.Room();
+            await room.connect(url, token, opts);
+            return room;
+          };
+        }
+        return null;
+      }
 
-      const connectFn = candidateFns[0];
+      const connectFn = resolveConnect(livekitNS);
       if (!connectFn) {
         const nsDetails = typeof livekitNS === 'object' ? Object.keys(livekitNS) : typeof livekitNS;
         console.error('LiveKit connect function unavailable', { namespace: nsDetails });
