@@ -64,20 +64,26 @@
 
   <script>
     async function initLiveKit() {
-      // Try different global object names for LiveKit
-      const LiveKit = window.LiveKitClient || window.LiveKit || window.livekit || window.LK;
-      console.log('Attempting to initialize with LiveKit object:', LiveKit);
+      console.log('Checking window.LiveKitClient:', window.LiveKitClient);
+      console.log('Type of LiveKitClient:', typeof window.LiveKitClient);
       
-      if (!LiveKit) {
-        console.error('LiveKit not loaded - trying fallback');
-        // Fallback: try to access via different methods
-        const allGlobals = Object.keys(window).filter(k => k.toLowerCase().includes('live') || k.includes('LK'));
-        console.log('Available LiveKit-related globals:', allGlobals);
+      // Try to access connect function directly
+      let connect;
+      
+      if (window.LiveKitClient && typeof window.LiveKitClient === 'object') {
+        console.log('LiveKitClient object found, keys:', Object.keys(window.LiveKitClient));
+        connect = window.LiveKitClient.connect;
+      } else if (window.LiveKitClient && typeof window.LiveKitClient === 'function') {
+        // Sometimes the whole library is exposed as a function
+        connect = window.LiveKitClient;
+      }
+      
+      if (!connect) {
+        console.error('Could not find connect function');
         return;
       }
       
-      console.log('LiveKit object keys:', Object.keys(LiveKit));
-      const { connect } = LiveKit;
+      console.log('Connect function found:', typeof connect);
 
     const qs = new URLSearchParams(window.location.search);
     const token = qs.get("token");
