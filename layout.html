@@ -70,9 +70,19 @@
         return;
       }
 
-      const connectFn = typeof livekitNS.connect === 'function' ? livekitNS.connect.bind(livekitNS) : livekitNS;
-      if (typeof connectFn !== 'function') {
-        console.error('LiveKit connect function unavailable');
+      const candidateFns = [
+        livekitNS?.connect,
+        livekitNS?.default?.connect,
+        livekitNS?.default,
+        livekitNS?.LivekitClient?.connect,
+        livekitNS?.LivekitClient,
+        typeof livekitNS === 'function' ? livekitNS : undefined,
+      ].filter((fn) => typeof fn === 'function');
+
+      const connectFn = candidateFns[0];
+      if (!connectFn) {
+        const nsDetails = typeof livekitNS === 'object' ? Object.keys(livekitNS) : typeof livekitNS;
+        console.error('LiveKit connect function unavailable', { namespace: nsDetails });
         return;
       }
 
@@ -214,7 +224,11 @@ function ingestParticipant(p) {
   render();
 });
     room.on('trackUnsubscribed', (track, pub, p) => {
-      const e = state.get(p.identity) || {}; if (track.kind==='video') e.vTrack = undefined; else if (track.kind==='audio') e.aTrack=undefined; state.set(p.identity, e); render();
+      const patch = {};
+      if (track.kind === 'video') patch.vTrack = undefined;
+      if (track.kind === 'audio') patch.aTrack = undefined;
+      mergeEntry(p.identity, patch);
+      render();
     });
     }
 
