@@ -226,9 +226,16 @@ function ingestParticipant(p) {
   render();
 }
 
-    // Seed
-    room.participants.forEach(ingestParticipant);
-    ingestParticipant(room.localParticipant);
+    // Seed existing participants (LiveKit v2 exports remoteParticipants map)
+    const remoteMap = room.participants || room.remoteParticipants || new Map();
+    if (typeof remoteMap.forEach === 'function') {
+      remoteMap.forEach((participant) => {
+        if (participant) ingestParticipant(participant);
+      });
+    }
+    if (room.localParticipant) {
+      ingestParticipant(room.localParticipant);
+    }
 
     // Events
     room.on('participantConnected', ingestParticipant);
