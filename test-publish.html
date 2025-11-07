@@ -70,7 +70,7 @@
     <div id="roomInfo"></div>
   </div>
 
-  <script src="https://unpkg.com/livekit-client@2.5.3/dist/livekit-client.umd.js"></script>
+  <script src="https://unpkg.com/livekit-client@1.15.13/dist/livekit-client.umd.js"></script>
   <script>
     let room = null;
     let localVideoTrack = null;
@@ -170,54 +170,79 @@
         
         showStatus('Connecting to room...');
         
-        // Create room
-        room = new livekit.Room();
-        
-        // Connect to room first
-        await room.connect(lkUrl, window.testToken);
-        showStatus('Connected to room successfully!');
-        
-        // Get user media
-        showStatus('Getting camera and microphone...');
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: true, 
-          audio: true 
+        // Create room with options
+        room = new livekit.Room({
+          autoSubscribe: true,
+          publishDefaults: {
+            videoCodec: 'vp8'
+          }
         });
         
-        // Show local video
-        const localVideo = document.getElementById('localVideo');
-        localVideo.srcObject = stream;
+        // Connect to room with options to auto-publish
+        await room.connect(lkUrl, window.testToken, {
+          autoSubscribe: true
+        });
+        showStatus('Connected to room successfully!');
         
-        // Create LiveKit tracks from the stream
-        const videoTrack = stream.getVideoTracks()[0];
-        const audioTrack = stream.getAudioTracks()[0];
+        // Enable camera and microphone directly
+        showStatus('Enabling camera and microphone...');
         
-        if (videoTrack) {
-          const lkVideoTrack = await livekit.createLocalVideoTrack({ 
-            source: videoTrack,
-            publishOptions: {
-              name: 'camera'
-            }
-          });
-          await room.localParticipant.publishTrack(lkVideoTrack, {
-            name: 'camera'
-          });
-          localVideoTrack = lkVideoTrack;
-          showStatus('Published video track');
+        try {
+          // Method 1: Enable directly
+          await room.localParticipant.enableCameraAndMicrophone();
+        } catch (error1) {
+          console.log('Method 1 failed, trying method 2:', error1.message);
+          
+          try {
+            // Method 2: Create and publish manually
+            const videoTrack = await livekit.createLocalVideoTrack();
+            const audioTrack = await livekit.createLocalAudioTrack();
+            
+            await room.localParticipant.publishTrack(videoTrack);
+            await room.localParticipant.publishTrack(audioTrack);
+            
+            localVideoTrack = videoTrack;
+          } catch (error2) {
+            console.log('Method 2 failed, trying method 3:', error2.message);
+            
+            // Method 3: Use getUserMedia first
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+              video: true, 
+              audio: true 
+            });
+            
+            // Show local video
+            const localVideo = document.getElementById('localVideo');
+            localVideo.srcObject = stream;
+            
+            showStatus('Got media stream, creating tracks...');
+            
+            // Stop the stream tracks and let LiveKit handle it
+            stream.getTracks().forEach(track => track.stop());
+            
+            const videoTrack = await livekit.createLocalVideoTrack();
+            const audioTrack = await livekit.createLocalAudioTrack();
+            
+            await room.localParticipant.publishTrack(videoTrack);
+            await room.localParticipant.publishTrack(audioTrack);
+            
+            localVideoTrack = videoTrack;
+          }
         }
         
-        if (audioTrack) {
-          const lkAudioTrack = await livekit.createLocalAudioTrack({
-            source: audioTrack,
-            publishOptions: {
-              name: 'microphone'
+        // Get the local video for preview
+        setTimeout(() => {
+          try {
+            const videoPublication = room.localParticipant.getTrack(livekit.Track.Source.Camera);
+            if (videoPublication?.track) {
+              const localVideo = document.getElementById('localVideo');
+              const element = videoPublication.track.attach();
+              localVideo.srcObject = element.srcObject;
             }
-          });
-          await room.localParticipant.publishTrack(lkAudioTrack, {
-            name: 'microphone'
-          });
-          showStatus('Published audio track');
-        }
+          } catch (e) {
+            console.log('Preview setup failed:', e);
+          }
+        }, 1000);
         
         // Update metadata after connecting
         await room.localParticipant.setMetadata(JSON.stringify({
