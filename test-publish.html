@@ -164,6 +164,8 @@
         }
         
         const lkUrl = document.getElementById('lkUrl').value;
+        const identity = document.getElementById('identity').value;
+        const role = document.getElementById('role').value;
         const livekit = window.LivekitClient || window.LiveKitClient || window.LiveKit;
         
         showStatus('Connecting to room...');
@@ -171,11 +173,12 @@
         // Create room
         room = new livekit.Room();
         
-        // Connect to room
+        // Connect to room first
         await room.connect(lkUrl, window.testToken);
         showStatus('Connected to room successfully!');
         
         // Get user media
+        showStatus('Getting camera and microphone...');
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: true, 
           audio: true 
@@ -185,15 +188,42 @@
         const localVideo = document.getElementById('localVideo');
         localVideo.srcObject = stream;
         
-        // Create LiveKit tracks
-        const videoTrack = await livekit.createLocalVideoTrack();
-        const audioTrack = await livekit.createLocalAudioTrack();
+        // Create LiveKit tracks from the stream
+        const videoTrack = stream.getVideoTracks()[0];
+        const audioTrack = stream.getAudioTracks()[0];
         
-        // Publish tracks
-        await room.localParticipant.publishTrack(videoTrack);
-        await room.localParticipant.publishTrack(audioTrack);
+        if (videoTrack) {
+          const lkVideoTrack = await livekit.createLocalVideoTrack({ 
+            source: videoTrack,
+            publishOptions: {
+              name: 'camera'
+            }
+          });
+          await room.localParticipant.publishTrack(lkVideoTrack, {
+            name: 'camera'
+          });
+          localVideoTrack = lkVideoTrack;
+          showStatus('Published video track');
+        }
         
-        localVideoTrack = videoTrack;
+        if (audioTrack) {
+          const lkAudioTrack = await livekit.createLocalAudioTrack({
+            source: audioTrack,
+            publishOptions: {
+              name: 'microphone'
+            }
+          });
+          await room.localParticipant.publishTrack(lkAudioTrack, {
+            name: 'microphone'
+          });
+          showStatus('Published audio track');
+        }
+        
+        // Update metadata after connecting
+        await room.localParticipant.setMetadata(JSON.stringify({
+          role: role,
+          name: identity
+        }));
         
         showStatus('Publishing video and audio successfully!');
         updateRoomInfo();
@@ -209,8 +239,17 @@
           updateRoomInfo();
         });
         
+        room.on('trackPublished', (publication, participant) => {
+          console.log('Track published:', publication.trackName, 'by', participant.identity);
+        });
+        
+        room.on('trackSubscribed', (track, publication, participant) => {
+          console.log('Track subscribed:', track.kind, 'from', participant.identity);
+        });
+        
       } catch (error) {
         showStatus('Error connecting: ' + error.message, true);
+        console.error('Connection error:', error);
       }
     }
     
@@ -244,16 +283,25 @@
         return;
       }
       
-      const participants = Array.from(room.remoteParticipants.values());
-      const info = `
-        <strong>Room:</strong> ${room.name || 'Unknown'}<br>
-        <strong>Local Identity:</strong> ${room.localParticipant?.identity}<br>
-        <strong>Remote Participants:</strong> ${participants.length}<br>
-        <strong>Participants:</strong><br>
-        ${participants.map(p => `- ${p.identity} (${p.tracks.size} tracks)`).join('<br>')}
-      `;
-      
-      roomInfo.innerHTML = info;
+      try {
+        const remoteParticipants = room.remoteParticipants || new Map();
+        const participants = Array.from(remoteParticipants.values());
+        const localParticipant = room.localParticipant;
+        
+        const info = `
+          <strong>Room:</strong> ${room.name || 'Unknown'}<br>
+          <strong>Local Identity:</strong> ${localParticipant?.identity || 'Unknown'}<br>
+          <strong>Local Tracks:</strong> ${localParticipant?.tracks?.size || 0}<br>
+          <strong>Remote Participants:</strong> ${participants.length}<br>
+          <strong>Participants:</strong><br>
+          ${participants.map(p => `- ${p.identity} (${p.tracks?.size || 0} tracks)`).join('<br>')}
+        `;
+        
+        roomInfo.innerHTML = info;
+      } catch (error) {
+        roomInfo.innerHTML = 'Error reading room info: ' + error.message;
+        console.error('Room info error:', error);
+      }
     }
   </script>
 </body>
