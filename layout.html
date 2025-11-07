@@ -134,7 +134,8 @@
       hasToken: !!token,
       tokenLength: token?.length || 0,
       tokenPreview: token ? token.slice(0, 50) + '...' : 'null',
-      fullUrl: window.location.href
+      fullUrl: window.location.href,
+      roomFromUrl: qs.get("room") || 'not specified'
     });
     
     if (!token) {
@@ -144,6 +145,12 @@
 
     const room = await connectFn(lkUrl, token, { autoSubscribe: true });
     console.log('Connected to room successfully');
+    console.log('Room info:', {
+      name: room.name,
+      localParticipant: room.localParticipant?.identity,
+      remoteParticipants: room.remoteParticipants?.size || 0,
+      state: room.state
+    });
 
     // State store
     const state = new Map(); // identity -> { role, pairToken, vTrack, aTrack, name }
