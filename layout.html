@@ -64,11 +64,12 @@
 
   <script>
     async function initLiveKit() {
-      const livekitNS = window.LivekitClient || window.LiveKitClient || window.LiveKit || window.livekit;
-      if (!livekitNS) {
-        console.error('LiveKit namespace not found');
-        return;
-      }
+      try {
+        const livekitNS = window.LivekitClient || window.LiveKitClient || window.LiveKit || window.livekit;
+        if (!livekitNS) {
+          console.error('LiveKit namespace not found');
+          return;
+        }
 
       function resolveConnect(ns) {
         const candidates = [
@@ -110,11 +111,39 @@
       }
 
     const qs = new URLSearchParams(window.location.search);
-    const token = qs.get("token");
+    let token = qs.get("token");
+    
+    // Nếu không có token trong query, thử đọc từ hash
+    if (!token && window.location.hash) {
+      // Hash có dạng #token=abc123, cần parse đúng cách
+      const hashString = window.location.hash.substring(1); // bỏ dấu #
+      if (hashString.startsWith('token=')) {
+        token = decodeURIComponent(hashString.substring(6)); // bỏ "token="
+      } else {
+        // Fallback: thử parse như query string
+        const hashParams = new URLSearchParams(hashString);
+        token = hashParams.get("token");
+      }
+    }
+    
     const lkUrl = qs.get("url") || "wss://hen-ho-sf416dcq.livekit.cloud"; // override via ?url= if needed
     const focusPair = qs.get("pair") || ""; // optional pairToken to focus on
 
+    console.log('Layout params:', { 
+      lkUrl, 
+      hasToken: !!token,
+      tokenLength: token?.length || 0,
+      tokenPreview: token ? token.slice(0, 50) + '...' : 'null',
+      fullUrl: window.location.href
+    });
+    
+    if (!token) {
+      console.error('No token found in URL params or hash');
+      return;
+    }
+
     const room = await connectFn(lkUrl, token, { autoSubscribe: true });
+    console.log('Connected to room successfully');
 
     // State store
     const state = new Map(); // identity -> { role, pairToken, vTrack, aTrack, name }
@@ -185,6 +214,13 @@
 
     function render() {
       const { mc, female, male, friends } = pickLayout();
+      console.log('Rendering layout:', { 
+        mc: mc?.name || 'none', 
+        female: female?.name || 'none', 
+        male: male?.name || 'none', 
+        friends: friends.length 
+      });
+      
       setTile(boxMc, mc?.vTrack, mc?.name || 'MC');
       setTile(boxN1, female?.vTrack, female?.name || 'Người 1');
       setTile(boxN2, male?.vTrack, male?.name || 'Người 2');
@@ -202,6 +238,13 @@
     }
 
 function ingestParticipant(p) {
+  console.log('Ingesting participant:', { 
+    identity: p.identity, 
+    name: p.name, 
+    metadata: p.metadata,
+    tracks: p.tracks?.size || 0
+  });
+  
   const meta = parseMeta(p);
   const role = (meta.role || '').toLowerCase();
   const pairToken = (meta.pairToken || '').toString();
@@ -219,6 +262,7 @@ function ingestParticipant(p) {
   p.tracks?.forEach?.(pub => {
     const t = pub?.track;
     if (!t) return;
+    console.log(`Track ${t.kind} for ${p.identity}:`, { subscribed: pub.isSubscribed });
     if (t.kind === 'video') entry.vTrack = t;
     if (t.kind === 'audio') entry.aTrack = t;
   });
@@ -238,28 +282,54 @@ function ingestParticipant(p) {
     }
 
     // Events
-    room.on('participantConnected', ingestParticipant);
-    room.on('participantDisconnected', (p)=>{ state.delete(p.identity); render(); });
-    room.on('participantMetadataChanged', (...args)=>{
+    room.on('participantConnected', (p) => {
+      console.log('Participant connected:', p.identity);
+      ingestParticipant(p);
+    });
+    room.on('participantDisconnected', (p) => {
+      console.log('Participant disconnected:', p.identity);
+      state.delete(p.identity); 
+      render(); 
+    });
+    room.on('participantMetadataChanged', (...args) => {
       const participant = args[1] && typeof args[1] === 'object' ? args[1] : args[0];
       if (participant && participant.identity) {
+        console.log('Participant metadata changed:', participant.identity);
         ingestParticipant(participant);
       }
     });
     room.on('trackSubscribed', (track, pub, p) => {
-  const patch = {};
-  if (track.kind === 'video') patch.vTrack = track;
-  if (track.kind === 'audio') patch.aTrack = track;
-  mergeEntry(p.identity, patch);
-  render();
-});
+      console.log(`Track subscribed: ${track.kind} from ${p.identity}`);
+      const patch = {};
+      if (track.kind === 'video') patch.vTrack = track;
+      if (track.kind === 'audio') patch.aTrack = track;
+      mergeEntry(p.identity, patch);
+      render();
+    });
     room.on('trackUnsubscribed', (track, pub, p) => {
+      console.log(`Track unsubscribed: ${track.kind} from ${p.identity}`);
       const patch = {};
       if (track.kind === 'video') patch.vTrack = undefined;
       if (track.kind === 'audio') patch.aTrack = undefined;
       mergeEntry(p.identity, patch);
       render();
     });
+    
+    room.on('disconnected', (reason) => {
+      console.log('Room disconnected:', reason);
+    });
+    
+    room.on('reconnecting', () => {
+      console.log('Room reconnecting...');
+    });
+    
+    room.on('reconnected', () => {
+      console.log('Room reconnected');
+    });
+    
+    } catch (error) {
+      console.error('Error initializing LiveKit:', error);
+    }
     }
 
     // Load LiveKit and initialize when ready
