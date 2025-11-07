@@ -95,10 +95,41 @@
           return;
         }
         
-        // Simple client-side token generation (not recommended for production)
-        // For production, generate token on your server
+        // Access LiveKit classes properly
         const livekit = window.LivekitClient || window.LiveKitClient || window.LiveKit;
-        const { AccessToken } = livekit;
+        console.log('LiveKit object:', livekit);
+        
+        // Try different ways to access AccessToken
+        let AccessToken = livekit?.AccessToken || 
+                         livekit?.default?.AccessToken || 
+                         livekit?.LiveKitAccessToken ||
+                         window.AccessToken;
+        
+        console.log('AccessToken constructor:', AccessToken);
+        
+        if (!AccessToken || typeof AccessToken !== 'function') {
+          showStatus('AccessToken constructor not found. This test page needs server-side token generation.', true);
+          
+          // Alternative: call backend to generate token
+          const response = await fetch('http://localhost:5000/api/test/livekit-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              identity: identity,
+              room: roomName,
+              role: role
+            })
+          });
+          
+          if (!response.ok) throw new Error('Failed to get token from backend');
+          
+          const data = await response.json();
+          if (!data.success) throw new Error(data.message || 'Token generation failed');
+          
+          window.testToken = data.data.token;
+          showStatus('Token generated from backend successfully!');
+          return;
+        }
         
         const token = new AccessToken(apiKey, apiSecret, {
           identity: identity,
@@ -121,6 +152,7 @@
         
       } catch (error) {
         showStatus('Error generating token: ' + error.message, true);
+        console.error('Token generation error:', error);
       }
     }
     
